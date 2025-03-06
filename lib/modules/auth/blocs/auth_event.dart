@@ -21,3 +21,10 @@ class LogoutRequested extends AuthEvent {}
 
 // New: Check Authentication Status Event
 class AuthCheckRequested extends AuthEvent {}
+
+class SignUpRequested extends AuthEvent {
+  final String email;
+  final String password;
+
+  SignUpRequested(this.email, this.password);
+}

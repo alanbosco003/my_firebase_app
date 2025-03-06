@@ -37,5 +37,20 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(
           AuthInitial()); // ✅ Ensures AuthWrapper rebuilds and redirects to LoginScreen
     });
+
+    on<SignUpRequested>((event, emit) async {
+      emit(AuthLoading());
+      try {
+        await _authService.signUp(event.email, event.password);
+        User? user = _authService.currentUser; // Fetch the newly created user
+        if (user != null) {
+          emit(AuthSuccess(user));
+        } else {
+          emit(AuthFailure("User creation failed"));
+        }
+      } catch (e) {
+        emit(AuthFailure(e.toString()));
+      }
+    });
   }
 }

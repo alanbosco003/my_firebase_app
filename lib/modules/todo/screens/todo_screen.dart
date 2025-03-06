@@ -1,8 +1,11 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:my_firebase_app/core/theme/theme_provider.dart';
 import 'package:my_firebase_app/modules/auth/blocs/auth_bloc.dart';
 import 'package:my_firebase_app/modules/todo/bloc/todo_bloc.dart';
 import 'package:my_firebase_app/modules/todoDetails/taskDetailsScreen.dart';
+import 'package:provider/provider.dart';
 
 class TodoScreen extends StatefulWidget {
   const TodoScreen({super.key});
@@ -12,15 +15,24 @@ class TodoScreen extends StatefulWidget {
 }
 
 class _TodoScreenState extends State<TodoScreen> {
-  final List<Map<String, String>> _tasks = [
-    {"title": "Buy Groceries", "details": "Milk, Bread, Eggs, and Fruits"},
-    {"title": "Meeting with Team", "details": "Discuss project progress"},
-    {"title": "Workout", "details": "1-hour gym session at 6 PM"},
-    {"title": "Read a Book", "details": "Read 30 pages of a novel"},
-  ];
+  @override
+  void initState() {
+    super.initState();
+    final userId = (context.read<AuthBloc>().state as AuthSuccess).user.uid;
+    context.read<TodoBloc>().add(FetchTasksEvent(userId: userId));
+  }
 
-  void _syncTasks(BuildContext context, List<Map<String, String>> tasks) {
-    context.read<TodoBloc>().add(SyncTasksEvent(tasks: tasks));
+  void _syncTasks(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
+    final authState = context.read<AuthBloc>().state;
+    if (authState is AuthSuccess) {
+      final userId = authState.user.uid;
+      final todoBloc = context.read<TodoBloc>();
+      if (todoBloc.state is TodoLoaded) {
+        final tasks = (todoBloc.state as TodoLoaded).tasks;
+        todoBloc.add(SyncTasksEvent(userId: userId, tasks: tasks));
+      }
+    }
   }
 
   void _showErrorPopup(BuildContext context) {
@@ -39,30 +51,34 @@ class _TodoScreenState extends State<TodoScreen> {
     );
   }
 
-  void _navigateToDetails(BuildContext context, int index) {
+  void _navigateToDetails(
+      BuildContext context, int index, Map<String, String> task) {
     Navigator.push(
       context,
       CupertinoPageRoute(
         builder: (_) => TaskDetailsScreen(
-          title: _tasks[index]["title"]!,
-          details: _tasks[index]["details"]!,
+          title: task["title"]!,
+          details: task["details"]!,
           onUpdate: (updatedTitle, updatedDetails) {
-            setState(() {
-              _tasks[index] = {
-                "title": updatedTitle,
-                "details": updatedDetails
-              }; // ✅ Update task
-            });
+            final updatedTask = {
+              "title": updatedTitle,
+              "details": updatedDetails
+            };
+            final todoBloc = context.read<TodoBloc>();
+            if (todoBloc.state is TodoLoaded) {
+              final updatedTasks = List<Map<String, String>>.from(
+                  (todoBloc.state as TodoLoaded).tasks);
+              updatedTasks[index] = updatedTask;
+              todoBloc.add(SyncTasksEvent(
+                userId:
+                    (context.read<AuthBloc>().state as AuthSuccess).user.uid,
+                tasks: updatedTasks,
+              ));
+            }
           },
         ),
       ),
     );
-  }
-
-  void _addTask(String title, String details) {
-    setState(() {
-      _tasks.add({"title": title, "details": details});
-    });
   }
 
   void _confirmLogout(BuildContext context) {
@@ -80,7 +96,7 @@ class _TodoScreenState extends State<TodoScreen> {
             isDestructiveAction: true,
             child: const Text("Logout"),
             onPressed: () {
-              Navigator.pop(context); // Close dialog
+              Navigator.pop(context);
               context.read<AuthBloc>().add(LogoutRequested());
             },
           ),
@@ -105,16 +121,14 @@ class _TodoScreenState extends State<TodoScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               CupertinoTextField(
-                controller: titleController,
-                placeholder: "Task Title",
-                padding: const EdgeInsets.all(12),
-              ),
+                  controller: titleController,
+                  placeholder: "Task Title",
+                  padding: const EdgeInsets.all(12)),
               const SizedBox(height: 10),
               CupertinoTextField(
-                controller: detailsController,
-                placeholder: "Task Details",
-                padding: const EdgeInsets.all(12),
-              ),
+                  controller: detailsController,
+                  placeholder: "Task Details",
+                  padding: const EdgeInsets.all(12)),
             ],
           ),
           actions: [
@@ -122,8 +136,22 @@ class _TodoScreenState extends State<TodoScreen> {
               onPressed: () {
                 if (titleController.text.isNotEmpty &&
                     detailsController.text.isNotEmpty) {
-                  _addTask(titleController.text,
-                      detailsController.text); // ✅ Call main state function
+                  final newTask = {
+                    "title": titleController.text,
+                    "details": detailsController.text
+                  };
+                  final todoBloc = context.read<TodoBloc>();
+                  if (todoBloc.state is TodoLoaded) {
+                    final updatedTasks = List<Map<String, String>>.from(
+                        (todoBloc.state as TodoLoaded).tasks);
+                    updatedTasks.add(newTask);
+                    todoBloc.add(SyncTasksEvent(
+                      userId: (context.read<AuthBloc>().state as AuthSuccess)
+                          .user
+                          .uid,
+                      tasks: updatedTasks,
+                    ));
+                  }
                   Navigator.pop(context);
                 }
               },
@@ -142,57 +170,93 @@ class _TodoScreenState extends State<TodoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final themeProvider = Provider.of<ThemeProvider>(context);
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        leading: Row(
-          children: [
-            BlocBuilder<TodoBloc, TodoState>(
-              builder: (context, state) {
-                return CupertinoButton(
+        middle: const Text("To-do List"),
+        leading: SizedBox(
+          width: 90,
+          child: Row(
+            children: [
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => _showAddTaskPopup(context),
+                child: const Icon(CupertinoIcons.add, size: 28),
+              ),
+              BlocBuilder<TodoBloc, TodoState>(
+                builder: (context, state) => CupertinoButton(
                   padding: EdgeInsets.zero,
-                  onPressed: () => _syncTasks(context, _tasks),
+                  onPressed: () => _syncTasks(context),
                   child: state is TodoSyncInProgress
                       ? const CupertinoActivityIndicator()
                       : const Icon(CupertinoIcons.cloud_upload),
-                );
-              },
-            ),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () => _showAddTaskPopup(context),
-              child: const Icon(CupertinoIcons.add, size: 28),
-            ),
-          ],
-        ),
-        middle: const Text("To-do List"),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () => _confirmLogout(context),
-              child: const Text(
-                "Logout",
-                style: TextStyle(color: CupertinoColors.systemRed),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
+        ),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: () => _confirmLogout(context),
+          child: const Text("Logout",
+              style: TextStyle(color: CupertinoColors.systemRed)),
         ),
       ),
       child: SafeArea(
         bottom: false,
-        child: CupertinoListSection.insetGrouped(
-          children: _tasks.asMap().entries.map((entry) {
-            final int index = entry.key; // ✅ Get index
-            final Map<String, String> task = entry.value; // ✅ Get task data
-
-            return CupertinoListTile(
-              title: Text(task["title"]!),
-              trailing: const CupertinoListTileChevron(),
-              onTap: () =>
-                  _navigateToDetails(context, index), // ✅ Now index is defined
-            );
-          }).toList(),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(4.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Icon(CupertinoIcons.sun_max,
+                      size: 24, color: CupertinoColors.systemYellow),
+                  const SizedBox(width: 8),
+                  CupertinoSwitch(
+                    value: themeProvider.isDarkMode,
+                    onChanged: (bool value) {
+                      themeProvider.toggleTheme();
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(CupertinoIcons.moon,
+                      size: 24, color: CupertinoColors.systemGrey),
+                ],
+              ),
+            ),
+            Expanded(
+              child: BlocBuilder<TodoBloc, TodoState>(
+                builder: (context, state) {
+                  if (state is TodoLoading)
+                    return const Center(child: CupertinoActivityIndicator());
+                  if (state is TodoLoaded) {
+                    return state.tasks.isNotEmpty
+                        ? CupertinoListSection.insetGrouped(
+                            children: state.tasks
+                                .asMap()
+                                .entries
+                                .map((entry) => CupertinoListTile(
+                                      title: Text(entry.value["title"]!),
+                                      trailing:
+                                          const CupertinoListTileChevron(),
+                                      onTap: () => _navigateToDetails(
+                                          context, entry.key, entry.value),
+                                    ))
+                                .toList(),
+                          )
+                        : const Center(
+                            child: Text("No tasks found",
+                                style: TextStyle(
+                                    fontSize: 18,
+                                    color: CupertinoColors.systemGrey)));
+                  }
+                  return const Center(child: Text(""));
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

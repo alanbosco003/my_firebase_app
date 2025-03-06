@@ -22,4 +22,11 @@ class AuthService {
 
   // Get Current User
   User? get currentUser => _auth.currentUser;
+
+  Future<void> signUp(String email, String password) async {
+    await _auth.createUserWithEmailAndPassword(
+      email: email,
+      password: password,
+    );
+  }
 }
